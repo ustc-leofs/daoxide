@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance Rust library for DAOS (Distributed Asynchronous Object Storage)"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/your-repo/daoxide"
-keywords = ["daos", "storage", "async", "high-performance"]
-categories = ["asynchronous", "filesystem", "storage"]
+license = "GPL-3.0-only"
+repository = "https://github.com/ustc-leofs/daoxide"
+keywords = ["daos", "storage", "high-performance"]
+categories = ["filesystem", "storage"]
 
 [features]
 default = ["tracing", "serde"]
@@ -26,8 +26,7 @@ serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 # Core DAOS client bindings
-daos-rs = { git = "ssh://git@github.com/ustc-leofs/daos-rs.git", branch = "main" }
-
+daos-rs = "0.1.0"
 # Optional: async runtime (enabled by `async` feature)
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "rt"], optional = true }
 
