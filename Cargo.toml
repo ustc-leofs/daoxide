@@ -2,6 +2,7 @@
 name = "daoxide"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "High-performance Rust library for DAOS (Distributed Asynchronous Object Storage)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/your-repo/daoxide"
@@ -38,7 +39,6 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
-mockall = "0.13"
+mockall = "0.14"
 static_assertions = "1.1"
 uuid = { version = "1", features = ["v4"] }
-

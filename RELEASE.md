@@ -35,7 +35,8 @@ version = "0.1.0"
 ### Policy
 
 - **MSRV**: Rust 1.85
-- MSRV is defined in `clippy.toml` under the `msrv` field
+- MSRV is defined in `Cargo.toml` via `rust-version = "1.85"`
+- `clippy.toml` `msrv` value must stay in sync with `Cargo.toml`
 - MSRV increases only on **major** version bumps
 - MSRV changes require a **major** version bump and **must** be documented in the changelog
 
