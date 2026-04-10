@@ -24,7 +24,7 @@
 //! ```
 
 use crate::error::{DaosError, Result};
-use crate::unsafe_inner::ffi::daos_eq_create;
+use crate::unsafe_inner::ffi::{daos_eq_create, daos_eq_destroy};
 use tokio::sync::oneshot;
 
 /// Spawns a blocking DAOS operation on a thread pool.
@@ -100,6 +100,17 @@ impl EventQueue {
     #[allow(dead_code)]
     pub(crate) fn as_raw_handle(&self) -> crate::unsafe_inner::handle::DaosHandle {
         self.handle
+    }
+}
+
+impl Drop for EventQueue {
+    fn drop(&mut self) {
+        if let Err(e) = daos_eq_destroy(self.handle) {
+            eprintln!(
+                "EventQueue::drop: daos_eq_destroy() failed with {:?}, continuing with drop anyway",
+                e
+            );
+        }
     }
 }
 

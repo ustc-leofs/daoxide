@@ -186,7 +186,7 @@ impl DkeyEnum {
         };
         let mut iov = d_iov_t {
             iov_buf: self.buffer.as_mut_ptr() as *mut std::ffi::c_void,
-            iov_buf_len: self.config.buffer_size,
+            iov_buf_len: self.buffer.len(),
             iov_len: 0,
         };
         sgl.sg_iovs = &mut iov;
@@ -331,7 +331,7 @@ impl AkeyEnum {
         };
         let mut iov = d_iov_t {
             iov_buf: self.buffer.as_mut_ptr() as *mut std::ffi::c_void,
-            iov_buf_len: self.config.buffer_size,
+            iov_buf_len: self.buffer.len(),
             iov_len: 0,
         };
         sgl.sg_iovs = &mut iov;

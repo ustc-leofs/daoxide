@@ -615,46 +615,50 @@ impl Object {
         dkey: Option<&DKey>,
         akey: Option<&AKey>,
     ) -> Result<QueryKeyResult> {
-        let handle = self.handle()?;
         if flags.is_empty() {
             return Err(DaosError::InvalidArg);
         }
+
         let has_max = flags.contains(QueryKeyFlags::GET_MAX);
         let has_min = flags.contains(QueryKeyFlags::GET_MIN);
-        if has_max && has_min {
+        if has_max == has_min {
             return Err(DaosError::InvalidArg);
         }
 
-        let mut dkey_raw = match dkey {
-            Some(d) => {
-                let buf = d.as_bytes();
-                daos::daos_key_t {
-                    iov_buf: buf.as_ptr() as *mut std::ffi::c_void,
-                    iov_buf_len: buf.len(),
-                    iov_len: buf.len(),
-                }
-            }
-            None => daos::daos_key_t {
-                iov_buf: std::ptr::null_mut(),
-                iov_buf_len: 0,
-                iov_len: 0,
-            },
+        let query_target = flags.contains(QueryKeyFlags::GET_DKEY)
+            || flags.contains(QueryKeyFlags::GET_AKEY)
+            || flags.contains(QueryKeyFlags::GET_RECX);
+        if !query_target {
+            return Err(DaosError::InvalidArg);
+        }
+
+        let needs_akey =
+            flags.contains(QueryKeyFlags::GET_AKEY) || flags.contains(QueryKeyFlags::GET_RECX);
+
+        let dkey = dkey.ok_or(DaosError::InvalidArg)?;
+        let mut dkey_buf = dkey.as_bytes().to_vec();
+        let mut akey_buf = akey.map(|a| a.as_bytes().to_vec());
+        if needs_akey && akey_buf.is_none() {
+            return Err(DaosError::InvalidArg);
+        }
+
+        let mut dkey_raw = daos::daos_key_t {
+            iov_buf: dkey_buf.as_mut_ptr() as *mut std::ffi::c_void,
+            iov_buf_len: dkey_buf.len(),
+            iov_len: dkey_buf.len(),
         };
 
-        let mut akey_raw = match akey {
-            Some(a) => {
-                let buf = a.as_bytes();
-                daos::daos_key_t {
-                    iov_buf: buf.as_ptr() as *mut std::ffi::c_void,
-                    iov_buf_len: buf.len(),
-                    iov_len: buf.len(),
-                }
-            }
-            None => daos::daos_key_t {
-                iov_buf: std::ptr::null_mut(),
-                iov_buf_len: 0,
-                iov_len: 0,
-            },
+        let mut empty_akey = Vec::new();
+        let akey_storage = if let Some(buf) = &mut akey_buf {
+            buf
+        } else {
+            &mut empty_akey
+        };
+
+        let mut akey_raw = daos::daos_key_t {
+            iov_buf: akey_storage.as_mut_ptr() as *mut std::ffi::c_void,
+            iov_buf_len: akey_storage.len(),
+            iov_len: akey_storage.len(),
         };
 
         let mut recx = daos::daos_recx_t {
@@ -662,6 +666,7 @@ impl Object {
             rx_nr: 0,
         };
 
+        let handle = self.handle()?;
         crate::unsafe_inner::ffi::daos_obj_query_key(
             handle,
             tx.as_raw_daos_handle(),
@@ -672,26 +677,22 @@ impl Object {
         )?;
 
         let dkey_result = if flags.contains(QueryKeyFlags::GET_DKEY) {
-            if dkey_raw.iov_len > 0 {
-                let slice = unsafe {
-                    std::slice::from_raw_parts(dkey_raw.iov_buf as *const u8, dkey_raw.iov_len)
-                };
-                DKey::new(slice.to_vec()).ok()
-            } else {
+            let dkey_len = dkey_raw.iov_len;
+            if dkey_len == 0 || dkey_len > dkey_buf.len() {
                 None
+            } else {
+                DKey::new(dkey_buf[..dkey_len].to_vec()).ok()
             }
         } else {
             None
         };
 
         let akey_result = if flags.contains(QueryKeyFlags::GET_AKEY) {
-            if akey_raw.iov_len > 0 {
-                let slice = unsafe {
-                    std::slice::from_raw_parts(akey_raw.iov_buf as *const u8, akey_raw.iov_len)
-                };
-                AKey::new(slice.to_vec()).ok()
-            } else {
+            let akey_len = akey_raw.iov_len;
+            if akey_len == 0 || akey_len > akey_storage.len() {
                 None
+            } else {
+                AKey::new(akey_storage[..akey_len].to_vec()).ok()
             }
         } else {
             None
@@ -1199,6 +1200,55 @@ mod tests {
         let tx = Tx::none();
         let result = object.query_key(&tx, QueryKeyFlags::default(), None, None);
         assert!(matches!(result, Err(crate::error::DaosError::InvalidArg)));
+    }
+
+    #[test]
+    fn test_query_key_requires_query_target_flag() {
+        let object = Object {
+            handle: None,
+            oid: ObjectId::NIL,
+        };
+        let tx = Tx::none();
+        let dkey = DKey::new(b"test_dkey").unwrap();
+        let flags = QueryKeyFlags::GET_MAX;
+        let result = object.query_key(&tx, flags, Some(&dkey), None);
+        assert!(matches!(result, Err(crate::error::DaosError::InvalidArg)));
+    }
+
+    #[test]
+    fn test_query_key_requires_dkey_input() {
+        let object = Object {
+            handle: None,
+            oid: ObjectId::NIL,
+        };
+        let tx = Tx::none();
+        let flags = QueryKeyFlags::GET_MAX | QueryKeyFlags::GET_DKEY;
+        let result = object.query_key(&tx, flags, None, None);
+        assert!(matches!(result, Err(crate::error::DaosError::InvalidArg)));
+    }
+
+    #[test]
+    fn test_query_key_requires_akey_for_akey_or_recx_queries() {
+        let object = Object {
+            handle: None,
+            oid: ObjectId::NIL,
+        };
+        let tx = Tx::none();
+        let dkey = DKey::new(b"test_dkey").unwrap();
+
+        let akey_flags = QueryKeyFlags::GET_MAX | QueryKeyFlags::GET_AKEY;
+        let akey_result = object.query_key(&tx, akey_flags, Some(&dkey), None);
+        assert!(matches!(
+            akey_result,
+            Err(crate::error::DaosError::InvalidArg)
+        ));
+
+        let recx_flags = QueryKeyFlags::GET_MAX | QueryKeyFlags::GET_RECX;
+        let recx_result = object.query_key(&tx, recx_flags, Some(&dkey), None);
+        assert!(matches!(
+            recx_result,
+            Err(crate::error::DaosError::InvalidArg)
+        ));
     }
 
     #[test]
