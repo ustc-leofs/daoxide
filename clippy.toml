@@ -1,0 +1,8 @@
+# Clippy linter configuration for daoxide
+# See https://rust-lang.github.io/rustfmt/
+
+msrv = "1.85"
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 8
+type-complexity-threshold = 500
+doc-valid-idents = ["daoxide"]

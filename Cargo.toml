@@ -1,0 +1,44 @@
+[package]
+name = "daoxide"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance Rust library for DAOS (Distributed Asynchronous Object Storage)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-repo/daoxide"
+keywords = ["daos", "storage", "async", "high-performance"]
+categories = ["asynchronous", "filesystem", "storage"]
+
+[features]
+default = ["tracing", "serde"]
+
+## Enables mock testing utilities and test fixtures
+mock = []
+
+## Enables async runtime support (tokio). Core sync API remains available without this.
+async = ["dep:tokio"]
+
+## Enables tracing instrumentation for observability
+tracing = ["dep:tracing"]
+
+## Enables serialization/deserialization support via serde
+serde = ["dep:serde", "dep:serde_json"]
+
+[dependencies]
+# Core DAOS client bindings
+daos-rs = { git = "ssh://git@github.com/ustc-leofs/daos-rs.git", branch = "main" }
+
+# Optional: async runtime (enabled by `async` feature)
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "rt"], optional = true }
+
+# Optional: tracing for instrumentation (enabled by `tracing` feature)
+tracing = { version = "0.1", optional = true }
+
+# Optional: serialization (enabled by `serde` feature)
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+mockall = "0.13"
+static_assertions = "1.1"
+uuid = { version = "1", features = ["v4"] }
+
