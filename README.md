@@ -1,5 +1,7 @@
 # daoxide
 
+> Caution: This repo was created using vibe coding
+
 High-performance Rust library for accessing DAOS (Distributed Asynchronous Object Storage).
 
 This crate provides a safe wrapper around [daos-rs](https://github.com/ustc-leofs/daos-rs) bindings, with an ergonomic Rust-style API.
