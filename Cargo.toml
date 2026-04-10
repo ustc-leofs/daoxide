@@ -7,7 +7,7 @@ description = "High-performance Rust library for DAOS (Distributed Asynchronous 
 license = "GPL-3.0-only"
 repository = "https://github.com/ustc-leofs/daoxide"
 keywords = ["daos", "storage", "high-performance"]
-categories = ["filesystem", "storage"]
+categories = ["filesystem"]
 
 [features]
 default = ["tracing", "serde"]
