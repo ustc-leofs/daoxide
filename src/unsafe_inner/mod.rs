@@ -43,4 +43,4 @@ pub mod pointer;
 // Re-export commonly used types for convenience within the crate
 pub use buffer::Buffer;
 pub use handle::{DaosHandle, validate_handle};
-pub use pointer::{NonNullExt, as_char_ptr, as_const_char_ptr, as_mut_ptr};
+pub use pointer::{NonNullExt, as_const_char_ptr, as_mut_ptr};

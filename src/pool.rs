@@ -30,9 +30,13 @@ pub mod flags {
     /// No special flags.
     pub const POOL_CONNECT_NONE: u32 = 0;
     /// Read-only access mode.
-    pub const POOL_CONNECT_READONLY: u32 = 1 << 0;
-    /// Connect for query operations.
-    pub const POOL_CONNECT_QUERY_ONLY: u32 = 1 << 1;
+    pub const POOL_CONNECT_READONLY: u32 = daos::DAOS_PC_RO;
+    /// Read-write access mode.
+    pub const POOL_CONNECT_QUERY_ONLY: u32 = daos::DAOS_PC_RW;
+    /// Read-write access mode.
+    pub const POOL_CONNECT_READWRITE: u32 = daos::DAOS_PC_RW;
+    /// Exclusive access mode.
+    pub const POOL_CONNECT_EXCLUSIVE: u32 = daos::DAOS_PC_EX;
 }
 
 /// A connected DAOS pool with RAII semantics.

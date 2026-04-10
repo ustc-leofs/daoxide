@@ -26,16 +26,20 @@
 
 use crate::error::{DaosError, Result};
 use crate::unsafe_inner::ffi::{daos_fini as ffi_daos_fini, daos_init as ffi_daos_init};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 static RUNTIME_MUTEX: Mutex<()> = Mutex::new(());
+static RUNTIME_REFCOUNT: OnceLock<Mutex<usize>> = OnceLock::new();
 
-static mut RUNTIME_REFCOUNT: usize = 0;
+#[inline]
+fn runtime_refcount() -> &'static Mutex<usize> {
+    RUNTIME_REFCOUNT.get_or_init(|| Mutex::new(0))
+}
 
 /// Checks if the DAOS runtime is currently initialized.
 pub fn is_runtime_initialized() -> bool {
     let _guard = RUNTIME_MUTEX.lock().unwrap();
-    unsafe { RUNTIME_REFCOUNT > 0 }
+    *runtime_refcount().lock().unwrap() > 0
 }
 
 /// DAOS runtime handle with RAII semantics.
@@ -65,12 +69,11 @@ impl DaosRuntime {
     /// Returns an error if DAOS initialization fails.
     pub fn new() -> Result<Self> {
         let _guard = RUNTIME_MUTEX.lock().unwrap();
-        unsafe {
-            if RUNTIME_REFCOUNT == 0 {
-                ffi_daos_init()?;
-            }
-            RUNTIME_REFCOUNT += 1;
+        let mut refcount = runtime_refcount().lock().unwrap();
+        if *refcount == 0 {
+            ffi_daos_init()?;
         }
+        *refcount += 1;
         Ok(Self { _private: () })
     }
 
@@ -94,16 +97,18 @@ impl Default for DaosRuntime {
 impl Drop for DaosRuntime {
     fn drop(&mut self) {
         let _guard = RUNTIME_MUTEX.lock().unwrap();
-        unsafe {
-            RUNTIME_REFCOUNT -= 1;
-            if RUNTIME_REFCOUNT == 0 {
-                if let Err(e) = ffi_daos_fini() {
-                    eprintln!(
-                        "DaosRuntime::drop: daos_fini() failed with {:?}, \
-                         continuing with drop anyway",
-                        e
-                    );
-                }
+        let mut refcount = runtime_refcount().lock().unwrap();
+        if *refcount == 0 {
+            return;
+        }
+        *refcount -= 1;
+        if *refcount == 0 {
+            if let Err(e) = ffi_daos_fini() {
+                eprintln!(
+                    "DaosRuntime::drop: daos_fini() failed with {:?}, \
+                     continuing with drop anyway",
+                    e
+                );
             }
         }
     }
@@ -124,12 +129,10 @@ pub const RUNTIME_NOT_INIT_ERROR: &str =
 #[inline]
 pub fn require_runtime() -> Result<()> {
     let _guard = RUNTIME_MUTEX.lock().unwrap();
-    unsafe {
-        if RUNTIME_REFCOUNT > 0 {
-            Ok(())
-        } else {
-            Err(DaosError::InvalidArg)
-        }
+    if *runtime_refcount().lock().unwrap() > 0 {
+        Ok(())
+    } else {
+        Err(DaosError::InvalidArg)
     }
 }
 

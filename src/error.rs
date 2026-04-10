@@ -17,6 +17,17 @@
 
 use std::fmt;
 
+const DER_SUCCESS: i32 = daos::daos_errno_DER_SUCCESS as i32;
+const DER_NO_PERM: i32 = daos::daos_errno_DER_NO_PERM as i32;
+const DER_NO_HDL: i32 = daos::daos_errno_DER_NO_HDL as i32;
+const DER_INVAL: i32 = daos::daos_errno_DER_INVAL as i32;
+const DER_NONEXIST: i32 = daos::daos_errno_DER_NONEXIST as i32;
+const DER_UNREACH: i32 = daos::daos_errno_DER_UNREACH as i32;
+const DER_NOSYS: i32 = daos::daos_errno_DER_NOSYS as i32;
+const DER_TIMEDOUT: i32 = daos::daos_errno_DER_TIMEDOUT as i32;
+const DER_BUSY: i32 = daos::daos_errno_DER_BUSY as i32;
+const DER_TX_RESTART: i32 = daos::daos_errno_DER_TX_RESTART as i32;
+
 /// Result type alias using `DaosError` as the error variant.
 pub type Result<T> = std::result::Result<T, DaosError>;
 
@@ -91,24 +102,20 @@ pub type RawDaosResult = i32;
 /// let err = from_daos_errno(9999);
 /// assert!(matches!(err, DaosError::Unknown(9999)));
 /// ```
-/// DER_SUCCESS = 0
-const DER_SUCCESS: i32 = 0;
-
 #[inline]
 pub fn from_daos_errno(code: i32) -> DaosError {
     if code == DER_SUCCESS {
         return DaosError::Internal("unexpected success code".to_string());
     }
     match code {
-        1001 => DaosError::Permission,
-        1002 => DaosError::InvalidArg,
-        1003 => DaosError::InvalidArg,
-        1005 => DaosError::NotFound,
-        1006 => DaosError::Unreachable,
-        1010 => DaosError::Unsupported,
-        1011 => DaosError::Timeout,
-        1012 => DaosError::Busy,
-        2025 => DaosError::TxRestart,
+        DER_NO_PERM => DaosError::Permission,
+        DER_NO_HDL | DER_INVAL => DaosError::InvalidArg,
+        DER_NONEXIST => DaosError::NotFound,
+        DER_UNREACH => DaosError::Unreachable,
+        DER_NOSYS => DaosError::Unsupported,
+        DER_TIMEDOUT => DaosError::Timeout,
+        DER_BUSY => DaosError::Busy,
+        DER_TX_RESTART => DaosError::TxRestart,
         _ => DaosError::Unknown(code),
     }
 }

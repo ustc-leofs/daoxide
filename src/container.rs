@@ -33,7 +33,8 @@ use crate::error::{DaosError, Result};
 use crate::pool::Pool;
 use crate::runtime::require_runtime;
 use crate::unsafe_inner::ffi::{
-    daos_cont_close, daos_cont_create_with_label, daos_cont_open, daos_cont_query,
+    daos_cont_alloc_oids, daos_cont_close, daos_cont_create_with_label, daos_cont_open,
+    daos_cont_query,
 };
 use crate::unsafe_inner::handle::DaosHandle;
 use daos::daos_cont_info_t;
@@ -43,13 +44,13 @@ use daos::daos_cont_info_t;
 /// These flags control the access mode when opening a container.
 pub mod flags {
     /// Read-only access mode.
-    pub const CONT_OPEN_RO: u32 = 1 << 0;
+    pub const CONT_OPEN_RO: u32 = daos::DAOS_COO_RO;
     /// Read-write access mode.
-    pub const CONT_OPEN_RW: u32 = 1 << 1;
+    pub const CONT_OPEN_RW: u32 = daos::DAOS_COO_RW;
     /// Exclusive access mode.
-    pub const CONT_OPEN_EX: u32 = 1 << 2;
+    pub const CONT_OPEN_EX: u32 = daos::DAOS_COO_EX;
     /// Skip redundancy factor check.
-    pub const CONT_OPEN_FORCE: u32 = 1 << 3;
+    pub const CONT_OPEN_FORCE: u32 = daos::DAOS_COO_FORCE;
 }
 
 /// Container open mode for explicit API selection.
@@ -137,15 +138,7 @@ impl<'p> Container<'p> {
     /// * `num_oids` - Number of OIDs to allocate (typically 1)
     pub fn alloc_oids(&self, num_oids: u64) -> Result<u64> {
         let handle = self.as_handle()?;
-        let mut oid: u64 = 0;
-        let ret = unsafe {
-            daos::daos_cont_alloc_oids(handle.as_raw(), num_oids, &mut oid, std::ptr::null_mut())
-        };
-        if ret == 0 {
-            Ok(oid)
-        } else {
-            Err(crate::error::from_daos_errno(ret))
-        }
+        daos_cont_alloc_oids(handle, num_oids)
     }
 }
 

@@ -31,7 +31,7 @@ use crate::io::{AKey, DKey};
 use crate::unsafe_inner::handle::DaosHandle;
 use daos::{d_iov_t, d_sg_list_t, daos_anchor_t, daos_epoch_range_t, daos_key_desc_t, daos_recx_t};
 
-const DER_KEY2BIG: i32 = -1006;
+const DER_KEY2BIG: i32 = -(daos::daos_errno_DER_KEY2BIG as i32);
 
 const DAOS_ANCHOR_TYPE_EOF_VAL: u16 = 3;
 
@@ -641,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_der_key2big_constant() {
-        assert_eq!(DER_KEY2BIG, -1006);
+        assert_eq!(DER_KEY2BIG, -(daos::daos_errno_DER_KEY2BIG as i32));
     }
 
     #[test]

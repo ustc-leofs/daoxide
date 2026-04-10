@@ -11,8 +11,6 @@ use daos::{
     daos_cont_info_t, daos_epoch_t, daos_event_t, daos_handle_t, daos_key_t, daos_obj_id_t,
     daos_oclass_hints_t, daos_oclass_id_t, daos_otype_t, daos_pool_info_t, daos_recx_t,
 };
-use std::ptr::NonNull;
-
 /// DAOS success return code.
 const DER_SUCCESS: i32 = 0;
 
@@ -45,8 +43,8 @@ pub fn daos_fini() -> Result<()> {
 /// The `poh` output handle must not be used if this function returns an error.
 /// Callers should use `validate_handle()` on the returned handle before use.
 pub fn daos_pool_connect(pool: &str, sys: Option<&str>, flags: u32) -> Result<DaosHandle> {
-    let pool_ptr = as_const_char_ptr(pool)?;
-    let sys_ptr: Option<std::ptr::NonNull<std::os::raw::c_char>> = match sys {
+    let pool_cstr = as_const_char_ptr(pool)?;
+    let sys_cstr = match sys {
         Some(s) => Some(as_const_char_ptr(s)?),
         None => None,
     };
@@ -54,10 +52,10 @@ pub fn daos_pool_connect(pool: &str, sys: Option<&str>, flags: u32) -> Result<Da
     let mut handle: daos_handle_t = daos_handle_t { cookie: 0 };
     let ret = unsafe {
         daos::daos_pool_connect2(
-            pool_ptr.as_ptr().cast(),
-            sys_ptr
-                .map(|p| p.as_ptr().cast())
-                .unwrap_or(std::ptr::null_mut()),
+            pool_cstr.as_ptr(),
+            sys_cstr
+                .as_ref()
+                .map_or(std::ptr::null_mut(), |s| s.as_ptr() as *mut _),
             flags,
             &mut handle,
             std::ptr::null_mut(), // info
@@ -93,13 +91,13 @@ pub fn daos_pool_disconnect(poh: DaosHandle) -> Result<()> {
 /// valid NUL-terminated string. The returned handle must be validated
 /// before use.
 pub fn daos_cont_open(poh: DaosHandle, cont: &str, flags: u32) -> Result<DaosHandle> {
-    let cont_ptr = as_const_char_ptr(cont)?;
+    let cont_cstr = as_const_char_ptr(cont)?;
 
     let mut coh: daos_handle_t = daos_handle_t { cookie: 0 };
     let ret = unsafe {
         daos::daos_cont_open2(
             poh.as_raw(),
-            cont_ptr.as_ptr(),
+            cont_cstr.as_ptr(),
             flags,
             &mut coh,
             std::ptr::null_mut(), // info
@@ -159,7 +157,7 @@ pub fn daos_cont_create_with_label(
     label: &str,
     uuid: Option<&mut std::mem::MaybeUninit<daos::uuid_t>>,
 ) -> Result<()> {
-    let label_ptr = as_const_char_ptr(label)?;
+    let label_cstr = as_const_char_ptr(label)?;
     let uuid_ptr = match uuid {
         Some(u) => u.as_mut_ptr(),
         None => std::ptr::null_mut(),
@@ -167,7 +165,7 @@ pub fn daos_cont_create_with_label(
     let ret = unsafe {
         daos::daos_cont_create_with_label(
             poh.as_raw(),
-            label_ptr.as_ptr(),
+            label_cstr.as_ptr(),
             std::ptr::null_mut(), // cont_prop
             uuid_ptr,
             std::ptr::null_mut(), // ev
@@ -278,7 +276,7 @@ pub fn daos_obj_close(oh: DaosHandle) -> Result<()> {
 /// SAFETY: The container handle must be valid. The epoch pointer must be
 /// valid for writing sizeof(daos_epoch_t) bytes if not null.
 pub fn daos_cont_create_snap(coh: DaosHandle, name: Option<&str>) -> Result<u64> {
-    let name_ptr = match name {
+    let name_cstr = match name {
         Some(n) => Some(as_const_char_ptr(n)?),
         None => None,
     };
@@ -287,7 +285,9 @@ pub fn daos_cont_create_snap(coh: DaosHandle, name: Option<&str>) -> Result<u64>
         daos::daos_cont_create_snap(
             coh.as_raw(),
             &mut epoch,
-            name_ptr.map(|p| p.as_ptr()).unwrap_or(std::ptr::null_mut()),
+            name_cstr
+                .as_ref()
+                .map_or(std::ptr::null_mut(), |n| n.as_ptr() as *mut _),
             std::ptr::null_mut(), // ev
         )
     };
@@ -348,13 +348,12 @@ pub fn daos_eq_destroy(eqh: DaosHandle) -> Result<()> {
 
 /// Initializes an event.
 ///
-/// SAFETY: The event pointer must be valid for writing sizeof(daos_event_t) bytes.
-pub fn daos_event_init(eqh: DaosHandle) -> Result<NonNull<daos_event_t>> {
+/// SAFETY: The returned event value must be finalized via `daos_event_fini`.
+pub fn daos_event_init(eqh: DaosHandle) -> Result<daos_event_t> {
     let mut ev: daos_event_t = unsafe { std::mem::zeroed() };
     let ret = unsafe { daos::daos_event_init(&mut ev, eqh.as_raw(), std::ptr::null_mut()) };
     if ret == DER_SUCCESS {
-        // SAFETY: We've just initialized ev and it has valid memory
-        Ok(unsafe { NonNull::new_unchecked(&mut ev) })
+        Ok(ev)
     } else {
         Err(from_daos_errno(ret))
     }
@@ -363,8 +362,8 @@ pub fn daos_event_init(eqh: DaosHandle) -> Result<NonNull<daos_event_t>> {
 /// Finalizes an event.
 ///
 /// SAFETY: The event pointer must be valid and initialized.
-pub fn daos_event_fini(ev: NonNull<daos_event_t>) -> Result<()> {
-    let ret = unsafe { daos::daos_event_fini(ev.as_ptr()) };
+pub fn daos_event_fini(ev: &mut daos_event_t) -> Result<()> {
+    let ret = unsafe { daos::daos_event_fini(ev) };
     if ret == DER_SUCCESS {
         Ok(())
     } else {

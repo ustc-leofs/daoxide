@@ -3,6 +3,7 @@
 //! Provides safe wrappers around raw pointer operations for FFI calls.
 
 use crate::error::{DaosError, Result};
+use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
 /// Extension trait for NonNull pointers providing safe conversions.
@@ -64,7 +65,7 @@ pub fn validate_c_str<'a>(ptr: *const std::os::raw::c_char) -> Result<&'a str> {
         return Err(DaosError::InvalidArg);
     }
     // SAFETY: We've checked ptr is non-null, and C strings are null-terminated
-    let c_str = unsafe { std::ffi::CStr::from_ptr(ptr) };
+    let c_str = unsafe { CStr::from_ptr(ptr) };
     c_str
         .to_str()
         .map_err(|_| DaosError::Internal("Invalid UTF-8 in C string".to_string()))
@@ -81,17 +82,14 @@ pub fn validate_c_str_mut(ptr: *mut std::os::raw::c_char) -> Result<()> {
 
 /// Converts a byte slice reference to a C char pointer for FFI.
 ///
-/// Returns a pointer suitable for passing to FFI functions that expect
-/// a NUL-terminated string (copies if needed for NUL termination).
-pub fn as_char_ptr(s: &str) -> Result<std::ptr::NonNull<std::os::raw::c_char>> {
-    let c_str = std::ffi::CString::new(s).map_err(|_| DaosError::InvalidArg)?;
-    let ptr = c_str.into_raw();
-    // SAFETY: CString::into_raw returns a valid non-null pointer
-    Ok(unsafe { std::ptr::NonNull::new_unchecked(ptr) })
+/// Returns an owned `CString` suitable for passing to FFI functions that
+/// expect a NUL-terminated string.
+pub fn as_char_ptr(s: &str) -> Result<CString> {
+    CString::new(s).map_err(|_| DaosError::InvalidArg)
 }
 
 /// Converts a byte slice reference to a const C char pointer for FFI.
-pub fn as_const_char_ptr(s: &str) -> Result<std::ptr::NonNull<std::os::raw::c_char>> {
+pub fn as_const_char_ptr(s: &str) -> Result<CString> {
     as_char_ptr(s)
 }
 
@@ -145,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_validate_c_str_valid() {
-        let c_string = std::ffi::CString::new("hello").unwrap();
+        let c_string = CString::new("hello").unwrap();
         let ptr = c_string.as_ptr();
         let result = validate_c_str(ptr);
         assert!(result.is_ok());
@@ -157,6 +155,7 @@ mod tests {
         let s = "test string";
         let result = as_char_ptr(s);
         assert!(result.is_ok());
+        assert_eq!(result.unwrap().as_bytes(), s.as_bytes());
     }
 
     #[test]

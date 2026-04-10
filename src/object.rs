@@ -102,15 +102,15 @@ impl fmt::Display for ObjectType {
 #[repr(u32)]
 pub enum ObjectOpenMode {
     /// Shared read access.
-    ReadOnly = 0x02, // DAOS_OO_RO = (1 << 1)
+    ReadOnly = daos::DAOS_OO_RO as u32,
     /// Shared read & write, no cache for write.
-    ReadWrite = 0x04, // DAOS_OO_RW = (1 << 2)
+    ReadWrite = daos::DAOS_OO_RW as u32,
     /// Exclusive write, data can be cached.
-    Exclusive = 0x08, // DAOS_OO_EXCL = (1 << 3)
+    Exclusive = daos::DAOS_OO_EXCL as u32,
     /// Unsupported: random I/O.
-    IoRandom = 0x10, // DAOS_OO_IO_RAND = (1 << 4)
+    IoRandom = daos::DAOS_OO_IO_RAND as u32,
     /// Unsupported: sequential I/O.
-    IoSequential = 0x20, // DAOS_OO_IO_SEQ = (1 << 5)
+    IoSequential = daos::DAOS_OO_IO_SEQ as u32,
 }
 
 impl ObjectOpenMode {
@@ -120,11 +120,11 @@ impl ObjectOpenMode {
     #[inline]
     pub fn from_raw(raw: u32) -> Option<Self> {
         match raw {
-            0x02 => Some(ObjectOpenMode::ReadOnly),
-            0x04 => Some(ObjectOpenMode::ReadWrite),
-            0x08 => Some(ObjectOpenMode::Exclusive),
-            0x10 => Some(ObjectOpenMode::IoRandom),
-            0x20 => Some(ObjectOpenMode::IoSequential),
+            x if x == daos::DAOS_OO_RO as u32 => Some(ObjectOpenMode::ReadOnly),
+            x if x == daos::DAOS_OO_RW as u32 => Some(ObjectOpenMode::ReadWrite),
+            x if x == daos::DAOS_OO_EXCL as u32 => Some(ObjectOpenMode::Exclusive),
+            x if x == daos::DAOS_OO_IO_RAND as u32 => Some(ObjectOpenMode::IoRandom),
+            x if x == daos::DAOS_OO_IO_SEQ as u32 => Some(ObjectOpenMode::IoSequential),
             _ => None,
         }
     }
