@@ -1,38 +1,38 @@
 # daoxide
 
-High-performance Rust 库，用于访问 DAOS（Distributed Asynchronous Object Storage）。
+High-performance Rust library for accessing DAOS (Distributed Asynchronous Object Storage).
 
-本库是对 [daos-rs](https://github.com/ustc-leofs/daos-rs) 绑定的安全封装，提供符合 Rust 习惯的 Ergonomic API。
+This crate provides a safe wrapper around [daos-rs](https://github.com/ustc-leofs/daos-rs) bindings, with an ergonomic Rust-style API.
 
-## 项目简介
+## Overview
 
-daoxide 将 DAOS 的底层 C API 封装为安全的 Rust 接口：
+daoxide wraps the low-level DAOS C APIs into safe Rust interfaces:
 
-- **RAII 句柄管理**：Pool、Container、Object 句柄在 Drop 时自动释放
-- **类型安全**：强类型 Key、Object ID 和标志位，防止运行时错误
-- **Builder 模式**：流畅的链式调用替代复杂的初始化代码
-- **事务支持**：Tx 标记类型确保正确的事务处理
-- **统一错误处理**：DaosError 枚举替代原始整数错误码
+- **RAII handle management**: Pool, Container, and Object handles are automatically released on `Drop`
+- **Type safety**: strongly typed keys, object IDs, and flags to prevent runtime errors
+- **Builder pattern**: fluent chained calls instead of complex initialization code
+- **Transaction support**: marker-based `Tx` types ensure correct transaction handling
+- **Unified error handling**: `DaosError` enum instead of raw integer error codes
 
-## 特性（Feature Flags）
+## Feature Flags
 
-| Feature | 默认启用 | 说明 |
-|---------|----------|------|
-| `tracing` | 是 |  Tracing 可观测性支持 |
-| `serde` | 是 | 序列化/反序列化支持 |
-| `async` | 否 | 异步运行时支持（Tokio） |
-| `mock` | 否 |  Mock 测试工具 |
+| Feature | Enabled by Default | Description |
+|---------|--------------------|-------------|
+| `tracing` | Yes | Tracing observability support |
+| `serde` | Yes | Serialization/deserialization support |
+| `async` | No | Async runtime support (Tokio) |
+| `mock` | No | Mock testing utilities |
 
 ```toml
 [dependencies]
 daoxide = { version = "0.1", features = ["async"] }
 ```
 
-## 快速开始
+## Quick Start
 
-### 高层 API（Facade）
+### High-Level API (Facade)
 
-使用 `DaosClient::builder()` 快速连接 DAOS：
+Use `DaosClient::builder()` to connect to DAOS quickly:
 
 ```rust
 use daoxide::prelude::*;
@@ -59,9 +59,9 @@ fn main() -> daoxide::Result<()> {
 }
 ```
 
-### 中层 API（Pool/Container/Object）
+### Mid-Level API (Pool/Container/Object)
 
-直接使用 PoolBuilder 和 Container API：
+Use `PoolBuilder` and `Container` APIs directly:
 
 ```rust
 use daoxide::pool::{PoolBuilder, flags::POOL_CONNECT_NONE};
@@ -84,9 +84,9 @@ fn main() -> daoxide::Result<()> {
 }
 ```
 
-### 底层 API（Object I/O）
+### Low-Level API (Object I/O)
 
-使用 DKey/AKey/IoBuffer 进行键值操作：
+Use `DKey`/`AKey`/`IoBuffer` for key-value operations:
 
 ```rust
 use daoxide::io::{DKey, AKey, IoBuffer, Iod, IodSingleBuilder, Sgl};
@@ -109,15 +109,15 @@ let sgl = Sgl::builder().push(value).build()?;
 object.update(&Tx::none(), &dkey, &iod, &sgl)?;
 ```
 
-## 示例程序
+## Examples
 
-| 示例 | 文件 | 说明 |
-|------|------|------|
-| 最小客户端 | `examples/minimal_client.rs` | Facade API 演示 |
-| 对象操作 | `examples/object_io.rs` | 对象读写、键值操作 |
-| 池容器管理 | `examples/pool_container.rs` | Pool/Container 生命周期 |
+| Example | File | Description |
+|---------|------|-------------|
+| Minimal client | `examples/minimal_client.rs` | Facade API demo |
+| Object operations | `examples/object_io.rs` | Object read/write and key-value operations |
+| Pool/container management | `examples/pool_container.rs` | Pool/Container lifecycle |
 
-运行示例：
+Run examples:
 
 ```bash
 cargo run --example minimal_client
@@ -125,93 +125,93 @@ cargo run --example object_io
 cargo run --example pool_container
 ```
 
-## 文档导航
+## Documentation
 
-| 文档 | 内容 |
-|------|------|
-| [docs/MIGRATION.md](docs/MIGRATION.md) | 从 daos-rs 迁移到 daoxide 的完整指南 |
-| [RELEASE.md](RELEASE.md) | 发布策略、版本管理、质量门禁 |
+| Document | Contents |
+|----------|----------|
+| [docs/MIGRATION.md](docs/MIGRATION.md) | Complete guide for migrating from daos-rs to daoxide |
+| [RELEASE.md](RELEASE.md) | Release strategy, versioning, and quality gates |
 
-## 质量检查命令
+## Quality Check Commands
 
 ```bash
-# 代码格式检查
+# Code formatting check
 cargo fmt --all -- --check
 
-# Clippy 检查
+# Clippy check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# 测试（需使用 --test-threads=1）
+# Tests (must use --test-threads=1)
 cargo test --workspace --all-features -- --test-threads=1
 
-# 文档构建
+# Documentation build
 cargo doc --workspace --all-features --no-deps
 
-# MSRV 验证
+# MSRV verification
 cargo +1.85 build --release
 ```
 
-### Feature 矩阵验证
+### Feature Matrix Validation
 
 ```bash
-# 无默认特性
+# No default features
 cargo check --no-default-features
 
-# 各特性独立检查
+# Check each feature independently
 cargo check --features mock
 cargo check --features async
 
-# 全特性
+# All features
 cargo check --all-features
 ```
 
-## 已知限制
+## Known Limitations
 
-### 1. OIT（Object Instance Tracking）不可用
+### 1. OIT (Object Instance Tracking) is unavailable
 
-`daos_oit_*` FFI 函数未在 daos-rs 中导出，`crate::oit` 模块保持 stub 状态。
+`daos_oit_*` FFI functions are not exported by daos-rs, so `crate::oit` remains a stub.
 
-**临时方案**：使用 `crate::iter` 模块的对象枚举功能替代。
+**Workaround**: use object enumeration in the `crate::iter` module.
 
-### 2. 异步事件队列受限
+### 2. Async event queue is limited
 
-`daos_progress` 未在 daos-rs 中暴露，`async` feature 仅提供 `spawn_blocking` 封装，而非原生异步推进。
+`daos_progress` is not exposed in daos-rs. The `async` feature currently provides a `spawn_blocking` wrapper rather than native async progress.
 
-### 3. 并行测试注意事项
+### 3. Parallel testing caveat
 
-`test_runtime_init_and_fini` 在并行测试时可能失败，原因是 DAOS 底层使用全局状态（`RUNTIME_REFCOUNT`）。
+`test_runtime_init_and_fini` may fail under parallel test execution because DAOS uses global state (`RUNTIME_REFCOUNT`).
 
-**解决方法**：使用 `--test-threads=1` 运行测试。
+**Solution**: run tests with `--test-threads=1`.
 
 ```bash
 cargo test --workspace --all-features -- --test-threads=1
 ```
 
-这是预先存在的测试基础设施问题，不影响库本身的正确性。
+This is a pre-existing test infrastructure issue and does not affect library correctness.
 
-## 公共模块架构
+## Public Module Architecture
 
 ```
 daoxide
-├── error      - 错误类型
-├── facade     - 高层 API（DaosClient）
-├── runtime    - 运行时管理
-├── pool       - 池操作
-├── container  - 容器操作
-├── object     - 对象操作
-├── tx         - 事务管理
-├── io         - I/O 操作（DKey/AKey/IoBuffer）
-├── query      - 查询操作
-├── iter       - 迭代器工具
-├── oit        - 对象实例追踪（暂不可用）
-└── prelude    - 常用类型导出
+├── error      - Error types
+├── facade     - High-level API (DaosClient)
+├── runtime    - Runtime management
+├── pool       - Pool operations
+├── container  - Container operations
+├── object     - Object operations
+├── tx         - Transaction management
+├── io         - I/O operations (DKey/AKey/IoBuffer)
+├── query      - Query operations
+├── iter       - Iterator utilities
+├── oit        - Object instance tracking (currently unavailable)
+└── prelude    - Common exports
 ```
 
-## MSRV（Minimum Supported Rust Version）
+## MSRV (Minimum Supported Rust Version)
 
 - **MSRV**: Rust 1.85
 - **Edition**: 2024
 
-## 许可
+## License
 
-MIT OR Apache-2.0
+GPL-3.0-only
