@@ -107,7 +107,11 @@ pub fn from_daos_errno(code: i32) -> DaosError {
     if code == DER_SUCCESS {
         return DaosError::Internal("unexpected success code".to_string());
     }
-    match code {
+    // DAOS C APIs typically return negative DER codes (e.g. -DER_INVAL),
+    // while some wrappers/tests may use positive symbolic constants.
+    // Normalize to positive values so both forms are mapped consistently.
+    let normalized = if code < 0 { -code } else { code };
+    match normalized {
         DER_NO_PERM => DaosError::Permission,
         DER_NO_HDL | DER_INVAL => DaosError::InvalidArg,
         DER_NONEXIST => DaosError::NotFound,
@@ -178,6 +182,14 @@ mod tests {
         assert!(matches!(from_daos_errno(1011), DaosError::Timeout)); // DER_TIMEDOUT
         assert!(matches!(from_daos_errno(1012), DaosError::Busy)); // DER_BUSY
         assert!(matches!(from_daos_errno(2025), DaosError::TxRestart)); // DER_TX_RESTART
+    }
+
+    #[test]
+    fn test_negative_error_mappings() {
+        assert!(matches!(from_daos_errno(-1001), DaosError::Permission));
+        assert!(matches!(from_daos_errno(-1003), DaosError::InvalidArg));
+        assert!(matches!(from_daos_errno(-1005), DaosError::NotFound));
+        assert!(matches!(from_daos_errno(-2025), DaosError::TxRestart));
     }
 
     #[test]

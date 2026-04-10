@@ -19,7 +19,7 @@
 //! let container = pool.create_container("mycontainer")?;
 //!
 //! // Start a transaction
-//! let tx = Transaction::new(container.as_handle()?, 0)?;
+//! let tx = Transaction::new(&container, 0)?;
 //!
 //! // Perform operations...
 //!
@@ -42,6 +42,7 @@
 //! // Operations with tx will execute without transaction semantics
 //! ```
 
+use crate::container::Container;
 use crate::error::{DaosError, Result};
 use crate::runtime::require_runtime;
 use crate::unsafe_inner::ffi::{
@@ -49,6 +50,7 @@ use crate::unsafe_inner::ffi::{
 };
 use crate::unsafe_inner::handle::{DAOS_HANDLE_NULL, DaosHandle};
 use daos::daos_handle_t;
+use std::marker::PhantomData;
 
 /// Transaction flags controlling transaction behavior.
 pub mod flags {
@@ -109,7 +111,7 @@ impl TxState {
 /// automatically on `Drop`), it cannot be used for any operations.
 #[derive(Debug)]
 pub struct Transaction<'c> {
-    container: &'c DaosHandle,
+    _container_lifetime: PhantomData<&'c Container<'c>>,
     handle: Option<DaosHandle>,
     state: TxState,
 }
@@ -119,7 +121,7 @@ impl<'c> Transaction<'c> {
     ///
     /// # Arguments
     ///
-    /// * `container` - The container handle to create the transaction on
+    /// * `container` - The container to create the transaction on
     /// * `flags` - Transaction flags (e.g., `flags::TX_RDONLY`)
     ///
     /// # Errors
@@ -127,11 +129,16 @@ impl<'c> Transaction<'c> {
     /// Returns an error if:
     /// - DAOS runtime is not initialized
     /// - Transaction open fails
-    pub fn new(container: &'c DaosHandle, flags: u64) -> Result<Self> {
+    pub fn new(container: &'c Container<'c>, flags: u64) -> Result<Self> {
+        let coh = container.as_handle()?;
+        Self::new_with_handle(coh, flags)
+    }
+
+    pub(crate) fn new_with_handle(container: DaosHandle, flags: u64) -> Result<Self> {
         require_runtime()?;
-        let handle = daos_tx_open(*container, flags)?;
+        let handle = daos_tx_open(container, flags)?;
         Ok(Self {
-            container,
+            _container_lifetime: PhantomData,
             handle: Some(handle),
             state: TxState::Open,
         })
@@ -141,7 +148,7 @@ impl<'c> Transaction<'c> {
     ///
     /// # Arguments
     ///
-    /// * `container` - The container handle
+    /// * `container` - The container
     /// * `epoch` - The snapshot epoch to read from
     ///
     /// # Errors
@@ -150,11 +157,16 @@ impl<'c> Transaction<'c> {
     /// - DAOS runtime is not initialized
     /// - Snapshot epoch is invalid
     /// - Transaction open fails
-    pub fn open_snap(container: &'c DaosHandle, epoch: u64) -> Result<Self> {
+    pub fn open_snap(container: &'c Container<'c>, epoch: u64) -> Result<Self> {
+        let coh = container.as_handle()?;
+        Self::open_snap_with_handle(coh, epoch)
+    }
+
+    pub(crate) fn open_snap_with_handle(container: DaosHandle, epoch: u64) -> Result<Self> {
         require_runtime()?;
-        let handle = daos_tx_open_snap(*container, epoch)?;
+        let handle = daos_tx_open_snap(container, epoch)?;
         Ok(Self {
-            container,
+            _container_lifetime: PhantomData,
             handle: Some(handle),
             state: TxState::Open,
         })
@@ -185,12 +197,6 @@ impl<'c> Transaction<'c> {
     #[inline]
     pub fn is_open(&self) -> bool {
         self.state == TxState::Open
-    }
-
-    /// Returns the container handle this transaction is bound to.
-    #[inline]
-    pub fn container_handle(&self) -> &DaosHandle {
-        self.container
     }
 
     /// Returns the raw DAOS transaction handle for FFI calls.
@@ -404,7 +410,7 @@ mod tests {
 
     #[test]
     fn test_tx_none_default_impl() {
-        let tx: Tx = Default::default();
+        let tx = Tx::default();
         assert!(tx.is_none());
     }
 
@@ -416,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_tx_enum_debug() {
-        let tx_none: Tx = Tx::None;
+        let tx_none = Tx::None;
         assert!(format!("{:?}", tx_none).contains("None"));
     }
 
@@ -428,7 +434,7 @@ mod tests {
 
         let valid_handle = unsafe { DaosHandle::from_raw(daos::daos_handle_t { cookie: 12345 }) };
 
-        let result = Transaction::new(&valid_handle, 0);
+        let result = Transaction::new_with_handle(valid_handle, 0);
         assert!(result.is_err());
     }
 
@@ -452,7 +458,7 @@ mod tests {
 
         // Using an invalid handle should fail
         let invalid_handle = unsafe { DaosHandle::from_raw(daos::daos_handle_t { cookie: 0 }) };
-        let result = Transaction::new(&invalid_handle, 0);
+        let result = Transaction::new_with_handle(invalid_handle, 0);
         assert!(result.is_err());
 
         while crate::runtime::is_runtime_initialized() {
@@ -470,7 +476,7 @@ mod tests {
         let valid_handle = unsafe { DaosHandle::from_raw(daos::daos_handle_t { cookie: 12345 }) };
 
         // Create transaction - will fail due to invalid handle but we can test state checks
-        let _result = Transaction::new(&valid_handle, 0);
+        let _result = Transaction::new_with_handle(valid_handle, 0);
 
         // If the transaction couldn't be created due to bad handle, that's expected
         // But if it was created, we could test state transitions
@@ -483,7 +489,7 @@ mod tests {
     #[test]
     fn test_tx_none_passthrough_semantics() {
         // Tx::None should be usable as a passthrough indicator
-        let tx: Tx = Tx::none();
+        let tx = Tx::none();
         assert!(tx.is_none());
 
         // as_handle on None should error
@@ -494,7 +500,7 @@ mod tests {
     fn test_transaction_drop_closes_handle() {
         // Test that Drop is available and tx.rs compiles
         // Actual drop behavior requires DAOS environment
-        let tx_none: Tx = Tx::none();
+        let tx_none = Tx::none();
         assert!(tx_none.is_none());
     }
 }

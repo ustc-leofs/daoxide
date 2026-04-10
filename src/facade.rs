@@ -52,7 +52,7 @@
 //! - `ObjectBuilder::open()` returns `Object` for object operations
 //! - `KvClient` methods accept `Tx` for transaction control
 
-use crate::container::{Container, ContainerBuilder, ContainerOpen};
+use crate::container::{Container, ContainerOpen};
 use crate::error::{DaosError, Result};
 use crate::io::{AKey, DKey, IoBuffer, Iod, IodSingleBuilder, Sgl};
 use crate::object::{
@@ -292,31 +292,21 @@ impl DaosClientBuilder {
             builder.flags(self.pool_flags).build()?
         };
 
-        let container_label = self
-            .container_label
-            .as_deref()
-            .or(self.container_uuid.as_deref())
-            .unwrap()
-            .to_string();
+        let (container_identifier, open_by) = if let Some(label) = self.container_label.as_deref() {
+            (label.to_string(), ContainerOpen::ByLabel)
+        } else if let Some(uuid) = self.container_uuid.as_deref() {
+            (uuid.to_string(), ContainerOpen::ByUuid)
+        } else {
+            unreachable!("validated above");
+        };
 
-        {
-            let _container =
-                if let Ok(c) = ContainerBuilder::new().label(&container_label).build(&pool) {
-                    c
-                } else {
-                    pool.open_container(
-                        &container_label,
-                        ContainerOpen::ByLabel,
-                        self.container_flags,
-                    )?
-                };
-            // _container dropped here, releasing borrow of pool
-        }
+        // Validate accessibility of target container and fail fast on mismatch.
+        let _ = pool.open_container(&container_identifier, open_by, self.container_flags)?;
 
         Ok(DaosClient {
             runtime,
             pool,
-            container_label,
+            container_label: container_identifier,
             container_flags: self.container_flags,
             default_object_type: self.object_type,
             default_object_class: self.object_class,
@@ -442,7 +432,10 @@ impl DaosClient {
     ) -> Result<ObjectId> {
         let container = self.container()?;
         let coh = container.as_handle()?;
-        let mut oid = ObjectId::NIL;
+        // DAOS requires caller-provided low bits to be unique in the container.
+        // Allocate one OID slot first, then encode type/class/hints into it.
+        let lo = container.alloc_oids(1)?;
+        let mut oid = ObjectId::from_parts(0, lo);
         generate_oid(coh, &mut oid, object_type, oclass, hints)?;
         Ok(oid)
     }
@@ -482,8 +475,7 @@ impl DaosClient {
     #[inline]
     pub fn open_object(&self, oid: ObjectId, mode: ObjectOpenMode) -> Result<Object> {
         let container = self.container()?;
-        let coh = container.as_handle()?;
-        Object::open(coh, oid, mode)
+        Object::open_in(&container, oid, mode)
     }
 
     /// Stores a value in an object without a transaction.
@@ -547,8 +539,7 @@ impl DaosClient {
         V: AsRef<[u8]>,
     {
         let container = self.container()?;
-        let coh = container.as_handle()?;
-        let object = Object::open(coh, oid, ObjectOpenMode::ReadWrite)?;
+        let object = Object::open_in(&container, oid, ObjectOpenMode::ReadWrite)?;
 
         let dkey = DKey::new(dkey.as_ref().to_vec())?;
         let akey = AKey::new(akey.as_ref().to_vec())?;
@@ -584,11 +575,10 @@ impl DaosClient {
     /// # Errors
     ///
     /// Returns an error if the operation fails.
-    pub fn get<D, A, V>(&self, oid: ObjectId, dkey: D, akey: A, buffer: V) -> Result<()>
+    pub fn get<D, A>(&self, oid: ObjectId, dkey: D, akey: A, buffer: &mut [u8]) -> Result<()>
     where
         D: AsRef<[u8]>,
         A: AsRef<[u8]>,
-        V: AsRef<[u8]> + AsMut<[u8]>,
     {
         self.get_tx(oid, Tx::none(), dkey, akey, buffer)
     }
@@ -608,36 +598,42 @@ impl DaosClient {
     /// * `dkey` - Distribution key
     /// * `akey` - Attribute key
     /// * `buffer` - Buffer to read into
-    pub fn get_tx<D, A, V>(
+    pub fn get_tx<D, A>(
         &self,
         oid: ObjectId,
         tx: Tx<'_>,
         dkey: D,
         akey: A,
-        mut buffer: V,
+        buffer: &mut [u8],
     ) -> Result<()>
     where
         D: AsRef<[u8]>,
         A: AsRef<[u8]>,
-        V: AsRef<[u8]> + AsMut<[u8]>,
     {
         let container = self.container()?;
-        let coh = container.as_handle()?;
-        let object = Object::open(coh, oid, ObjectOpenMode::ReadWrite)?;
+        let object = Object::open_in(&container, oid, ObjectOpenMode::ReadWrite)?;
 
         let dkey = DKey::new(dkey.as_ref().to_vec())?;
         let akey = AKey::new(akey.as_ref().to_vec())?;
-
         let iod = Iod::Single(
             IodSingleBuilder::new(akey)
-                .value_len(buffer.as_ref().len())
+                .value_len(buffer.len())
                 .build()?,
         );
         let mut sgl = Sgl::builder()
-            .push(IoBuffer::from_vec(buffer.as_mut().to_vec()))
+            .push(IoBuffer::from_vec(buffer.to_vec()))
             .build()?;
 
-        object.fetch(&tx, &dkey, &iod, &mut sgl)
+        object.fetch(&tx, &dkey, &iod, &mut sgl)?;
+        let fetched = sgl
+            .buffers()
+            .first()
+            .ok_or(DaosError::Internal("empty SGL after fetch".into()))?;
+        if fetched.len() != buffer.len() {
+            return Err(DaosError::Internal("fetch buffer length mismatch".into()));
+        }
+        buffer.copy_from_slice(fetched.as_slice());
+        Ok(())
     }
 
     /// Deletes keys from an object.
@@ -656,8 +652,7 @@ impl DaosClient {
         tx: Tx<'_>,
     ) -> Result<()> {
         let container = self.container()?;
-        let coh = container.as_handle()?;
-        let object = Object::open(coh, oid, ObjectOpenMode::ReadWrite)?;
+        let object = Object::open_in(&container, oid, ObjectOpenMode::ReadWrite)?;
 
         match (dkey, akeys) {
             (Some(dk), Some(aks)) => {
@@ -758,8 +753,7 @@ impl<'c> ObjectBuilder<'c> {
     pub fn create(self, mode: ObjectOpenMode) -> Result<Object> {
         let oid = self.alloc()?;
         let container = self.client.container()?;
-        let coh = container.as_handle()?;
-        Object::open(coh, oid, mode)
+        Object::open_in(&container, oid, mode)
     }
 
     /// Opens an existing object by ID with the given mode.
@@ -774,8 +768,7 @@ impl<'c> ObjectBuilder<'c> {
     #[inline]
     pub fn open(&self, oid: ObjectId, mode: ObjectOpenMode) -> Result<Object> {
         let container = self.client.container()?;
-        let coh = container.as_handle()?;
-        Object::open(coh, oid, mode)
+        Object::open_in(&container, oid, mode)
     }
 
     /// Opens an object with the given ID, or creates a new one if it doesn't exist.

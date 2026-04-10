@@ -339,11 +339,21 @@ impl Pool {
     pub fn open_container(
         &self,
         identifier: &str,
-        _open_by: ContainerOpen,
+        open_by: ContainerOpen,
         flags: u32,
     ) -> Result<Container<'_>> {
         require_runtime()?;
         let pool_handle = self.as_handle().ok_or(DaosError::InvalidArg)?;
+        if identifier.is_empty() {
+            return Err(DaosError::InvalidArg);
+        }
+
+        match open_by {
+            ContainerOpen::ByLabel => {}
+            ContainerOpen::ByUuid => {
+                // UUID path is forwarded to DAOS as a string identifier too.
+            }
+        }
 
         let handle = daos_cont_open(pool_handle, identifier, flags)?;
 

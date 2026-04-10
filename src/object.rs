@@ -102,15 +102,15 @@ impl fmt::Display for ObjectType {
 #[repr(u32)]
 pub enum ObjectOpenMode {
     /// Shared read access.
-    ReadOnly = daos::DAOS_OO_RO as u32,
+    ReadOnly = daos::DAOS_OO_RO,
     /// Shared read & write, no cache for write.
-    ReadWrite = daos::DAOS_OO_RW as u32,
+    ReadWrite = daos::DAOS_OO_RW,
     /// Exclusive write, data can be cached.
-    Exclusive = daos::DAOS_OO_EXCL as u32,
+    Exclusive = daos::DAOS_OO_EXCL,
     /// Unsupported: random I/O.
-    IoRandom = daos::DAOS_OO_IO_RAND as u32,
+    IoRandom = daos::DAOS_OO_IO_RAND,
     /// Unsupported: sequential I/O.
-    IoSequential = daos::DAOS_OO_IO_SEQ as u32,
+    IoSequential = daos::DAOS_OO_IO_SEQ,
 }
 
 impl ObjectOpenMode {
@@ -120,11 +120,11 @@ impl ObjectOpenMode {
     #[inline]
     pub fn from_raw(raw: u32) -> Option<Self> {
         match raw {
-            x if x == daos::DAOS_OO_RO as u32 => Some(ObjectOpenMode::ReadOnly),
-            x if x == daos::DAOS_OO_RW as u32 => Some(ObjectOpenMode::ReadWrite),
-            x if x == daos::DAOS_OO_EXCL as u32 => Some(ObjectOpenMode::Exclusive),
-            x if x == daos::DAOS_OO_IO_RAND as u32 => Some(ObjectOpenMode::IoRandom),
-            x if x == daos::DAOS_OO_IO_SEQ as u32 => Some(ObjectOpenMode::IoSequential),
+            x if x == daos::DAOS_OO_RO => Some(ObjectOpenMode::ReadOnly),
+            x if x == daos::DAOS_OO_RW => Some(ObjectOpenMode::ReadWrite),
+            x if x == daos::DAOS_OO_EXCL => Some(ObjectOpenMode::Exclusive),
+            x if x == daos::DAOS_OO_IO_RAND => Some(ObjectOpenMode::IoRandom),
+            x if x == daos::DAOS_OO_IO_SEQ => Some(ObjectOpenMode::IoSequential),
             _ => None,
         }
     }
@@ -225,8 +225,15 @@ impl ObjectClassHints {
     /// Add a redundancy hint to the current set.
     #[inline]
     pub fn with_redundancy(mut self, red: ObjectRedundancy) -> Self {
-        // Clear existing redundancy bits (lower 4 bits) and set new one
-        self.bits = (self.bits & !0xF) | (red.as_raw() + 1);
+        // Clear existing redundancy hint bits and set the selected one.
+        // Hint encoding is one-hot in the lower 4 bits.
+        let red_hint = match red {
+            ObjectRedundancy::Default => Self::RDD_DEF.as_raw(),
+            ObjectRedundancy::None => Self::RDD_NO.as_raw(),
+            ObjectRedundancy::Replication => Self::RDD_RP.as_raw(),
+            ObjectRedundancy::ErasureCode => Self::RDD_EC.as_raw(),
+        };
+        self.bits = (self.bits & !0xF) | red_hint;
         self
     }
 
@@ -464,6 +471,15 @@ pub struct Object {
 }
 
 impl Object {
+    pub fn open_in(
+        container: &crate::container::Container<'_>,
+        oid: ObjectId,
+        mode: ObjectOpenMode,
+    ) -> Result<Self> {
+        let coh = container.as_handle()?;
+        Self::open(coh, oid, mode)
+    }
+
     pub fn open(container_handle: DaosHandle, oid: ObjectId, mode: ObjectOpenMode) -> Result<Self> {
         let handle =
             crate::unsafe_inner::ffi::daos_obj_open(container_handle, oid.raw, mode.as_raw())?;
@@ -854,6 +870,38 @@ mod tests {
             assert!(combined & hint.as_raw() == 0);
             combined |= hint.as_raw();
         }
+    }
+
+    #[test]
+    fn test_object_class_hints_with_redundancy_encodes_one_hot_bits() {
+        assert_eq!(
+            ObjectClassHints::NONE
+                .with_redundancy(ObjectRedundancy::Default)
+                .as_raw()
+                & 0xF,
+            ObjectClassHints::RDD_DEF.as_raw()
+        );
+        assert_eq!(
+            ObjectClassHints::NONE
+                .with_redundancy(ObjectRedundancy::None)
+                .as_raw()
+                & 0xF,
+            ObjectClassHints::RDD_NO.as_raw()
+        );
+        assert_eq!(
+            ObjectClassHints::NONE
+                .with_redundancy(ObjectRedundancy::Replication)
+                .as_raw()
+                & 0xF,
+            ObjectClassHints::RDD_RP.as_raw()
+        );
+        assert_eq!(
+            ObjectClassHints::NONE
+                .with_redundancy(ObjectRedundancy::ErasureCode)
+                .as_raw()
+                & 0xF,
+            ObjectClassHints::RDD_EC.as_raw()
+        );
     }
 
     #[test]

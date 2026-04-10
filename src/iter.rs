@@ -17,7 +17,7 @@
 //! ```ignore
 //! use daoxide::{Object, ObjectType, ObjectOpenMode};
 //!
-//! let mut object = Object::open(coh, oid, ObjectOpenMode::ReadOnly)?;
+//! let mut object = Object::open_in(&container, oid, ObjectOpenMode::ReadOnly)?;
 //!
 //! // Iterate all dkeys
 //! for dkey_result in object.enumerate_dkeys()? {
