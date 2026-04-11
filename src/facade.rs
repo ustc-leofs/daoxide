@@ -52,7 +52,8 @@
 //! - `ObjectBuilder::open()` returns `Object` for object operations
 //! - `KvClient` methods accept `Tx` for transaction control
 
-use crate::container::{Container, ContainerOpen};
+use crate::container::{Container, ContainerOpen, flags::CONT_OPEN_RW};
+use crate::pool::flags::POOL_CONNECT_READWRITE;
 use crate::error::{DaosError, Result};
 use crate::io::{AKey, DKey, IoBuffer, Iod, IodSingleBuilder, Sgl};
 use crate::object::{
@@ -134,10 +135,10 @@ impl Default for DaosClientBuilder {
             pool_label: None,
             pool_uuid: None,
             pool_sys: None,
-            pool_flags: 0,
+            pool_flags: POOL_CONNECT_READWRITE,
             container_label: None,
             container_uuid: None,
-            container_flags: 0,
+            container_flags: CONT_OPEN_RW,
             object_type: ObjectType::KvHashed,
             object_class: ObjectClass::UNKNOWN,
             object_hints: ObjectClassHints::NONE,
