@@ -305,8 +305,9 @@ impl DaosClientBuilder {
         let _ = pool.open_container(&container_identifier, open_by, self.container_flags)?;
 
         Ok(DaosClient {
-            runtime,
+            // pool must be initialized before runtime to match struct field order
             pool,
+            runtime,
             container_label: container_identifier,
             container_flags: self.container_flags,
             default_object_type: self.object_type,
@@ -327,6 +328,13 @@ impl DaosClientBuilder {
 /// - DAOS runtime initialization (reference-counted)
 /// - Pool connection (automatically disconnected on drop)
 /// - Container lifecycle (automatically closed on drop)
+///
+/// # Drop Order
+///
+/// Fields are dropped in declaration order, so `pool` must be declared before
+/// `runtime` to ensure pool handles are properly disconnected before the DAOS
+/// runtime is finalized. This prevents `daos_pool_disconnect` from failing with
+/// `DER_UNINIT` (-1015) when the pool is dropped after the runtime.
 ///
 /// # Escape Hatches
 ///
@@ -354,9 +362,11 @@ impl DaosClientBuilder {
 /// ```
 #[derive(Debug)]
 pub struct DaosClient {
+    // NOTE: pool must be declared before runtime to ensure proper drop order.
+    // Pool is dropped first, closing all handles before DAOS runtime finalization.
+    pool: Pool,
     #[allow(dead_code)]
     runtime: DaosRuntime,
-    pool: Pool,
     container_label: String,
     container_flags: u32,
     default_object_type: ObjectType,
