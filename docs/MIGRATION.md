@@ -211,7 +211,7 @@ use daoxide::{
 
 let dkey = DKey::new(b"my_dkey")?;
 let akey = AKey::new(b"my_akey")?;
-let value = IoBuffer::from_vec(b"hello world".to_vec());
+let value = IoBuffer::from_slice(b"hello world");
 
 let iod = Iod::Single(IodSingleBuilder::new(akey)
     .value_len(value.len())
@@ -255,7 +255,8 @@ let ret = daos_obj_fetch(
 ```rust
 use daoxide::io::{DKey, AKey, IoBuffer, Sgl, Iod, IodSingleBuilder};
 
-let mut buffer = IoBuffer::from_vec(vec![0u8; 1024]);
+let mut fetch_bytes = vec![0u8; 1024];
+let mut buffer = IoBuffer::from_mut_slice(fetch_bytes.as_mut_slice());
 let dkey = DKey::new(b"my_dkey")?;
 let akey = AKey::new(b"my_akey")?;
 

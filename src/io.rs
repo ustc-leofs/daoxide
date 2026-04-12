@@ -15,7 +15,7 @@
 //!
 //! let dkey = DKey::new(b"my_dkey")?;
 //! let akey = AKey::new(b"my_akey")?;
-//! let value = IoBuffer::from_vec(b"hello world".to_vec());
+//! let value = IoBuffer::from_slice(b"hello world");
 //!
 //! let iod = Iod::Single(IodSingleBuilder::new(akey)
 //!     .value_len(value.len())
@@ -126,8 +126,8 @@ impl AKey {
 
 /// Memory buffer for DAOS I/O operations.
 ///
-/// `IoBuffer` wraps a `Vec<u8>` and provides a stable interface for
-/// data transfer to and from DAOS objects.
+/// `IoBuffer` supports owned (`Vec<u8>`), borrowed read-only (`&[u8]`),
+/// and borrowed writable (`&mut [u8]`) storage.
 ///
 /// # Example
 ///
@@ -137,43 +137,165 @@ impl AKey {
 /// let buffer = IoBuffer::from_vec(vec![1, 2, 3, 4, 5]);
 /// assert_eq!(buffer.len(), 5);
 /// assert_eq!(buffer.as_slice(), &[1, 2, 3, 4, 5]);
+///
+/// let bytes = [9, 8, 7];
+/// let borrowed = IoBuffer::from_slice(&bytes);
+/// assert_eq!(borrowed.as_slice(), &[9, 8, 7]);
+///
+/// let mut out = [0u8; 3];
+/// let mut writable = IoBuffer::from_mut_slice(&mut out);
+/// writable.as_mut_slice().copy_from_slice(&[1, 2, 3]);
+/// assert_eq!(out, [1, 2, 3]);
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IoBuffer {
-    bytes: Vec<u8>,
+#[derive(Clone)]
+pub struct IoBuffer<'a> {
+    bytes: IoBufferBytes<'a>,
 }
 
-impl IoBuffer {
+#[derive(Debug)]
+enum IoBufferBytes<'a> {
+    Owned(Vec<u8>),
+    Borrowed(&'a [u8]),
+    BorrowedMut(&'a mut [u8]),
+}
+
+impl std::fmt::Debug for IoBuffer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IoBuffer")
+            .field("bytes", &self.as_slice())
+            .finish()
+    }
+}
+
+impl PartialEq for IoBuffer<'_> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for IoBuffer<'_> {}
+
+impl<'a> Clone for IoBufferBytes<'a> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Owned(bytes) => Self::Owned(bytes.clone()),
+            Self::Borrowed(bytes) => Self::Borrowed(bytes),
+            Self::BorrowedMut(bytes) => Self::Owned(bytes.to_vec()),
+        }
+    }
+}
+
+impl<'a> IoBuffer<'a> {
     /// Creates a buffer from a `Vec<u8>`.
     ///
     /// Takes ownership of the data.
     #[inline]
     pub fn from_vec(bytes: Vec<u8>) -> Self {
-        Self { bytes }
+        Self {
+            bytes: IoBufferBytes::Owned(bytes),
+        }
+    }
+
+    /// Creates a buffer by borrowing an existing read-only byte slice without copying.
+    #[inline]
+    pub fn from_slice(bytes: &'a [u8]) -> Self {
+        Self {
+            bytes: IoBufferBytes::Borrowed(bytes),
+        }
+    }
+
+    /// Creates a buffer by borrowing an existing writable byte slice without copying.
+    ///
+    /// This form can be used for fetch/read operations where DAOS writes directly
+    /// into caller-provided memory.
+    #[inline]
+    pub fn from_mut_slice(bytes: &'a mut [u8]) -> Self {
+        Self {
+            bytes: IoBufferBytes::BorrowedMut(bytes),
+        }
     }
 
     /// Returns a slice of the buffer contents.
     #[inline]
     pub fn as_slice(&self) -> &[u8] {
-        &self.bytes
+        match &self.bytes {
+            IoBufferBytes::Owned(bytes) => bytes.as_slice(),
+            IoBufferBytes::Borrowed(bytes) => bytes,
+            IoBufferBytes::BorrowedMut(bytes) => bytes,
+        }
     }
 
     /// Returns a mutable slice of the buffer contents.
+    ///
+    /// If this buffer currently borrows read-only data (`&[u8]`), this method
+    /// first materializes an owned copy so the returned slice can be safely mutated.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        &mut self.bytes
+        if let IoBufferBytes::Borrowed(bytes) = &self.bytes {
+            self.bytes = IoBufferBytes::Owned(bytes.to_vec());
+        }
+        match &mut self.bytes {
+            IoBufferBytes::Owned(bytes) => bytes.as_mut_slice(),
+            IoBufferBytes::BorrowedMut(bytes) => bytes,
+            IoBufferBytes::Borrowed(_) => unreachable!("borrowed bytes converted to owned"),
+        }
+    }
+
+    #[inline]
+    fn as_mut_slice_if_writable(&mut self) -> Option<&mut [u8]> {
+        match &mut self.bytes {
+            IoBufferBytes::Owned(bytes) => Some(bytes.as_mut_slice()),
+            IoBufferBytes::BorrowedMut(bytes) => Some(bytes),
+            IoBufferBytes::Borrowed(_) => None,
+        }
     }
 
     /// Returns the length of the buffer in bytes.
     #[inline]
     pub fn len(&self) -> usize {
-        self.bytes.len()
+        self.as_slice().len()
     }
 
     /// Returns true if the buffer is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
+        self.as_slice().is_empty()
+    }
+}
+
+impl<'a> From<Vec<u8>> for IoBuffer<'a> {
+    #[inline]
+    fn from(bytes: Vec<u8>) -> Self {
+        Self::from_vec(bytes)
+    }
+}
+
+impl<'a> From<&'a [u8]> for IoBuffer<'a> {
+    #[inline]
+    fn from(bytes: &'a [u8]) -> Self {
+        Self::from_slice(bytes)
+    }
+}
+
+impl<'a, const N: usize> From<&'a [u8; N]> for IoBuffer<'a> {
+    #[inline]
+    fn from(bytes: &'a [u8; N]) -> Self {
+        Self::from_slice(bytes)
+    }
+}
+
+impl<'a> From<&'a mut [u8]> for IoBuffer<'a> {
+    #[inline]
+    fn from(bytes: &'a mut [u8]) -> Self {
+        Self::from_mut_slice(bytes)
+    }
+}
+
+impl<'a, const N: usize> From<&'a mut [u8; N]> for IoBuffer<'a> {
+    #[inline]
+    fn from(bytes: &'a mut [u8; N]) -> Self {
+        Self::from_mut_slice(bytes)
     }
 }
 
@@ -198,20 +320,20 @@ impl IoBuffer {
 /// assert_eq!(sgl.total_len(), 6);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Sgl {
-    buffers: Vec<IoBuffer>,
+pub struct Sgl<'a> {
+    buffers: Vec<IoBuffer<'a>>,
 }
 
-impl Sgl {
+impl<'a> Sgl<'a> {
     /// Creates a new [`SglBuilder`] for constructing an Sgl.
     #[inline]
-    pub fn builder() -> SglBuilder {
+    pub fn builder() -> SglBuilder<'a> {
         SglBuilder::new()
     }
 
     /// Returns the buffers in this Sgl.
     #[inline]
-    pub fn buffers(&self) -> &[IoBuffer] {
+    pub fn buffers(&self) -> &[IoBuffer<'a>] {
         &self.buffers
     }
 
@@ -227,7 +349,8 @@ impl Sgl {
         self.buffers.is_empty()
     }
 
-    /// Converts to the raw DAOS scatter-gather list representation.
+    /// Converts to the raw DAOS scatter-gather list representation for
+    /// read-only access (e.g. object update).
     ///
     /// # Errors
     ///
@@ -256,15 +379,51 @@ impl Sgl {
 
         Ok(RawSgl { iovs, sgl })
     }
+
+    /// Converts to the raw DAOS scatter-gather list representation for
+    /// writable access (e.g. object fetch).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(DaosError::InvalidArg)` if:
+    /// - no buffers are present
+    /// - any buffer is borrowed read-only (`&[u8]`)
+    pub fn to_raw_mut(&mut self) -> Result<RawSgl> {
+        if self.buffers.is_empty() {
+            return Err(DaosError::InvalidArg);
+        }
+
+        let mut iovs = Vec::with_capacity(self.buffers.len());
+        for buffer in &mut self.buffers {
+            let bytes = buffer
+                .as_mut_slice_if_writable()
+                .ok_or(DaosError::InvalidArg)?;
+            iovs.push(d_iov_t {
+                iov_buf: bytes.as_mut_ptr() as *mut std::ffi::c_void,
+                iov_buf_len: bytes.len(),
+                iov_len: bytes.len(),
+            });
+        }
+
+        let mut sgl = d_sg_list_t {
+            sg_nr: iovs.len() as u32,
+            sg_nr_out: iovs.len() as u32,
+            sg_iovs: std::ptr::null_mut(),
+        };
+
+        sgl.sg_iovs = iovs.as_mut_ptr();
+
+        Ok(RawSgl { iovs, sgl })
+    }
 }
 
 /// Builder for creating [`Sgl`] instances.
 #[derive(Debug, Default)]
-pub struct SglBuilder {
-    buffers: Vec<IoBuffer>,
+pub struct SglBuilder<'a> {
+    buffers: Vec<IoBuffer<'a>>,
 }
 
-impl SglBuilder {
+impl<'a> SglBuilder<'a> {
     /// Creates a new SglBuilder.
     #[inline]
     pub fn new() -> Self {
@@ -275,8 +434,8 @@ impl SglBuilder {
     ///
     /// Returns the builder for chaining.
     #[inline]
-    pub fn push(mut self, buffer: IoBuffer) -> Self {
-        self.buffers.push(buffer);
+    pub fn push(mut self, buffer: impl Into<IoBuffer<'a>>) -> Self {
+        self.buffers.push(buffer.into());
         self
     }
 
@@ -286,7 +445,7 @@ impl SglBuilder {
     ///
     /// Returns `Err(DaosError::InvalidArg)` if no buffers were added.
     #[inline]
-    pub fn build(self) -> Result<Sgl> {
+    pub fn build(self) -> Result<Sgl<'a>> {
         if self.buffers.is_empty() {
             return Err(DaosError::InvalidArg);
         }
@@ -608,6 +767,34 @@ mod tests {
     }
 
     #[test]
+    fn test_iobuffer_from_slice_borrows_without_copy() {
+        let bytes = [1u8, 2, 3, 4];
+        let buffer = IoBuffer::from_slice(&bytes);
+        assert_eq!(buffer.as_slice(), &bytes);
+        assert_eq!(buffer.as_slice().as_ptr(), bytes.as_ptr());
+    }
+
+    #[test]
+    fn test_iobuffer_as_mut_slice_materializes_owned_copy() {
+        let bytes = [1u8, 2, 3];
+        let mut buffer = IoBuffer::from_slice(&bytes);
+        buffer.as_mut_slice()[0] = 9;
+        assert_eq!(buffer.as_slice(), &[9, 2, 3]);
+        assert_eq!(bytes, [1, 2, 3]);
+    }
+
+    #[test]
+    fn test_iobuffer_from_mut_slice_writes_through_without_copy() {
+        let mut bytes = [1u8, 2, 3, 4];
+        let ptr = bytes.as_ptr();
+        let mut buffer = IoBuffer::from_mut_slice(&mut bytes);
+        assert_eq!(buffer.as_slice().as_ptr(), ptr);
+        buffer.as_mut_slice()[1] = 9;
+        drop(buffer);
+        assert_eq!(bytes, [1, 9, 3, 4]);
+    }
+
+    #[test]
     fn test_sgl_builder_rejects_empty() {
         assert!(Sgl::builder().build().is_err());
     }
@@ -635,6 +822,44 @@ mod tests {
         assert_eq!(raw.sgl.sg_nr_out, 2);
         assert!(!raw.sgl.sg_iovs.is_null());
         assert_eq!(raw.iovs.len(), 2);
+    }
+
+    #[test]
+    fn test_sgl_to_raw_mut_accepts_owned_buffers() {
+        let mut sgl = Sgl::builder()
+            .push(IoBuffer::from_vec(vec![1, 2, 3]))
+            .push(IoBuffer::from_vec(vec![4]))
+            .build()
+            .unwrap();
+        let raw = sgl.to_raw_mut().unwrap();
+        assert_eq!(raw.sgl.sg_nr, 2);
+        assert_eq!(raw.sgl.sg_nr_out, 2);
+        assert!(!raw.sgl.sg_iovs.is_null());
+        assert_eq!(raw.iovs.len(), 2);
+    }
+
+    #[test]
+    fn test_sgl_to_raw_mut_accepts_mut_borrowed_buffers() {
+        let mut bytes = [1u8, 2, 3];
+        let mut sgl = Sgl::builder()
+            .push(IoBuffer::from_mut_slice(&mut bytes))
+            .build()
+            .unwrap();
+        let raw = sgl.to_raw_mut().unwrap();
+        assert_eq!(raw.sgl.sg_nr, 1);
+        assert_eq!(raw.sgl.sg_nr_out, 1);
+        assert!(!raw.sgl.sg_iovs.is_null());
+        assert_eq!(raw.iovs.len(), 1);
+    }
+
+    #[test]
+    fn test_sgl_to_raw_mut_rejects_readonly_borrowed_buffers() {
+        let bytes = [1u8, 2, 3];
+        let mut sgl = Sgl::builder()
+            .push(IoBuffer::from_slice(&bytes))
+            .build()
+            .unwrap();
+        assert!(matches!(sgl.to_raw_mut(), Err(DaosError::InvalidArg)));
     }
 
     #[test]

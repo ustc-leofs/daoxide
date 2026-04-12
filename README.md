@@ -99,7 +99,7 @@ let object = client.object_builder()
 
 let dkey = DKey::new(b"my_dkey")?;
 let akey = AKey::new(b"my_akey")?;
-let value = IoBuffer::from_vec(b"hello world".to_vec());
+let value = IoBuffer::from_slice(b"hello world");
 
 let iod = Iod::Single(
     IodSingleBuilder::new(akey.clone())

@@ -509,7 +509,7 @@ impl Object {
         self.handle.ok_or(crate::error::DaosError::InvalidArg)
     }
 
-    pub fn update(&self, tx: &Tx, dkey: &DKey, iod: &Iod, sgl: &Sgl) -> Result<()> {
+    pub fn update(&self, tx: &Tx, dkey: &DKey, iod: &Iod, sgl: &Sgl<'_>) -> Result<()> {
         let handle = self.handle()?;
         let mut raw_iod: RawIod = iod.to_raw()?;
         let mut raw_sgl: RawSgl = sgl.to_raw()?;
@@ -536,10 +536,10 @@ impl Object {
         if ret == 0 { Ok(()) } else { Err(ret.into()) }
     }
 
-    pub fn fetch(&self, tx: &Tx, dkey: &DKey, iod: &Iod, sgl: &mut Sgl) -> Result<()> {
+    pub fn fetch(&self, tx: &Tx, dkey: &DKey, iod: &Iod, sgl: &mut Sgl<'_>) -> Result<()> {
         let handle = self.handle()?;
         let mut raw_iod: RawIod = iod.to_raw()?;
-        let mut raw_sgl: RawSgl = sgl.to_raw()?;
+        let mut raw_sgl: RawSgl = sgl.to_raw_mut()?;
         let mut dkey_buf = dkey.as_bytes().to_vec();
         let mut dkey_raw = daos::daos_key_t {
             iov_buf: dkey_buf.as_mut_ptr() as *mut std::ffi::c_void,

@@ -28,7 +28,7 @@ fn main() -> daoxide::Result<()> {
     // Prepare key-value data
     let dkey = daoxide::io::DKey::new(b"my_dkey")?;
     let akey = daoxide::io::AKey::new(b"my_akey")?;
-    let value = IoBuffer::from_vec(b"hello world".to_vec());
+    let value = IoBuffer::from_slice(b"hello world");
 
     // Build IOD and SGL
     let iod = Iod::Single(
@@ -43,14 +43,13 @@ fn main() -> daoxide::Result<()> {
     println!("Updated key-value pair");
 
     // Fetch back the value
-    let fetch_buffer = IoBuffer::from_vec(vec![0u8; 1024]);
+    let mut fetch_bytes = vec![0u8; 1024];
+    let fetch_buffer = IoBuffer::from_mut_slice(fetch_bytes.as_mut_slice());
     let mut fetch_sgl = Sgl::builder().push(fetch_buffer).build()?;
     let fetch_iod = Iod::Single(IodSingleBuilder::new(akey).value_len(1024).build()?);
     object.fetch(&Tx::none(), &dkey, &fetch_iod, &mut fetch_sgl)?;
-    println!(
-        "Fetched: {:?}",
-        String::from_utf8_lossy(fetch_sgl.buffers()[0].as_slice())
-    );
+    drop(fetch_sgl);
+    println!("Fetched: {:?}", String::from_utf8_lossy(&fetch_bytes));
 
     // Transactional operations require the lower-level API
     // (see docs/MIGRATION.md for transaction examples)

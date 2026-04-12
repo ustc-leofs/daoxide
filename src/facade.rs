@@ -567,7 +567,7 @@ impl DaosClient {
                 .build()?,
         );
         let sgl = Sgl::builder()
-            .push(IoBuffer::from_vec(value_bytes.to_vec()))
+            .push(IoBuffer::from_slice(value_bytes))
             .build()?;
 
         object.update(&tx, &dkey, &iod, &sgl)
@@ -605,7 +605,6 @@ impl DaosClient {
     ///
     /// * `D` - DKey type
     /// * `A` - AKey type
-    /// * `V` - Value buffer type
     ///
     /// # Arguments
     ///
@@ -637,19 +636,10 @@ impl DaosClient {
                 .build()?,
         );
         let mut sgl = Sgl::builder()
-            .push(IoBuffer::from_vec(buffer.to_vec()))
+            .push(IoBuffer::from_mut_slice(buffer))
             .build()?;
 
-        object.fetch(&tx, &dkey, &iod, &mut sgl)?;
-        let fetched = sgl
-            .buffers()
-            .first()
-            .ok_or(DaosError::Internal("empty SGL after fetch".into()))?;
-        if fetched.len() != buffer.len() {
-            return Err(DaosError::Internal("fetch buffer length mismatch".into()));
-        }
-        buffer.copy_from_slice(fetched.as_slice());
-        Ok(())
+        object.fetch(&tx, &dkey, &iod, &mut sgl)
     }
 
     /// Deletes keys from an object.
