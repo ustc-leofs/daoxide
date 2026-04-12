@@ -106,6 +106,13 @@ impl<'p> Container<'p> {
         self.handle.ok_or(DaosError::InvalidArg)
     }
 
+    /// Transfers ownership of the container handle to the caller.
+    ///
+    /// After calling this, this `Container` will no longer close the handle on drop.
+    pub(crate) fn into_handle(mut self) -> Result<DaosHandle> {
+        self.handle.take().ok_or(DaosError::InvalidArg)
+    }
+
     /// Closes the container explicitly.
     ///
     /// This is called automatically when the `Container` is dropped, but

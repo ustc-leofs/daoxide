@@ -53,15 +53,17 @@
 //! - `KvClient` methods accept `Tx` for transaction control
 
 use crate::container::{Container, ContainerOpen, flags::CONT_OPEN_RW};
-use crate::pool::flags::POOL_CONNECT_READWRITE;
 use crate::error::{DaosError, Result};
 use crate::io::{AKey, DKey, IoBuffer, Iod, IodSingleBuilder, Sgl};
 use crate::object::{
     Object, ObjectClass, ObjectClassHints, ObjectId, ObjectOpenMode, ObjectType, generate_oid,
 };
+use crate::pool::flags::POOL_CONNECT_READWRITE;
 use crate::pool::{Pool, PoolBuilder};
 use crate::runtime::DaosRuntime;
 use crate::tx::Tx;
+use crate::unsafe_inner::ffi::{daos_cont_alloc_oids, daos_cont_close};
+use crate::unsafe_inner::handle::DaosHandle;
 
 /// Error type for facade-specific errors that don't map to DAOS errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -301,14 +303,18 @@ impl DaosClientBuilder {
             unreachable!("validated above");
         };
 
-        // Validate accessibility of target container and fail fast on mismatch.
-        let _ = pool.open_container(&container_identifier, open_by, self.container_flags)?;
+        // Open once and retain the handle for the client's lifetime.
+        let container =
+            pool.open_container(&container_identifier, open_by, self.container_flags)?;
+        let container_handle = container.into_handle()?;
 
         Ok(DaosClient {
+            container_handle,
             // pool must be initialized before runtime to match struct field order
             pool,
             runtime,
             container_label: container_identifier,
+            container_open_by: open_by,
             container_flags: self.container_flags,
             default_object_type: self.object_type,
             default_object_class: self.object_class,
@@ -362,12 +368,14 @@ impl DaosClientBuilder {
 /// ```
 #[derive(Debug)]
 pub struct DaosClient {
+    container_handle: DaosHandle,
     // NOTE: pool must be declared before runtime to ensure proper drop order.
     // Pool is dropped first, closing all handles before DAOS runtime finalization.
     pool: Pool,
     #[allow(dead_code)]
     runtime: DaosRuntime,
     container_label: String,
+    container_open_by: ContainerOpen,
     container_flags: u32,
     default_object_type: ObjectType,
     default_object_class: ObjectClass,
@@ -398,7 +406,7 @@ impl DaosClient {
     pub fn container(&self) -> Result<Container<'_>> {
         self.pool.open_container(
             &self.container_label,
-            ContainerOpen::ByLabel,
+            self.container_open_by,
             self.container_flags,
         )
     }
@@ -441,13 +449,11 @@ impl DaosClient {
         oclass: ObjectClass,
         hints: ObjectClassHints,
     ) -> Result<ObjectId> {
-        let container = self.container()?;
-        let coh = container.as_handle()?;
         // DAOS requires caller-provided low bits to be unique in the container.
         // Allocate one OID slot first, then encode type/class/hints into it.
-        let lo = container.alloc_oids(1)?;
+        let lo = daos_cont_alloc_oids(self.container_handle, 1)?;
         let mut oid = ObjectId::from_parts(0, lo);
-        generate_oid(coh, &mut oid, object_type, oclass, hints)?;
+        generate_oid(self.container_handle, &mut oid, object_type, oclass, hints)?;
         Ok(oid)
     }
 
@@ -485,8 +491,7 @@ impl DaosClient {
     /// Returns an error if the object cannot be opened.
     #[inline]
     pub fn open_object(&self, oid: ObjectId, mode: ObjectOpenMode) -> Result<Object> {
-        let container = self.container()?;
-        Object::open_in(&container, oid, mode)
+        Object::open(self.container_handle, oid, mode)
     }
 
     /// Stores a value in an object without a transaction.
@@ -763,8 +768,7 @@ impl<'c> ObjectBuilder<'c> {
     /// * `mode` - The open mode (read/write/exclusive)
     pub fn create(self, mode: ObjectOpenMode) -> Result<Object> {
         let oid = self.alloc()?;
-        let container = self.client.container()?;
-        Object::open_in(&container, oid, mode)
+        self.client.open_object(oid, mode)
     }
 
     /// Opens an existing object by ID with the given mode.
@@ -778,8 +782,7 @@ impl<'c> ObjectBuilder<'c> {
     /// * `mode` - The open mode
     #[inline]
     pub fn open(&self, oid: ObjectId, mode: ObjectOpenMode) -> Result<Object> {
-        let container = self.client.container()?;
-        Object::open_in(&container, oid, mode)
+        self.client.open_object(oid, mode)
     }
 
     /// Opens an object with the given ID, or creates a new one if it doesn't exist.
@@ -795,6 +798,17 @@ impl<'c> ObjectBuilder<'c> {
     pub fn open_or_create(self, oid: ObjectId, mode: ObjectOpenMode) -> Result<Object> {
         let _ = self.alloc();
         self.open(oid, mode)
+    }
+}
+
+impl Drop for DaosClient {
+    fn drop(&mut self) {
+        if let Err(e) = daos_cont_close(self.container_handle) {
+            eprintln!(
+                "DaosClient::drop: daos_cont_close() failed with {:?}, continuing with drop anyway",
+                e
+            );
+        }
     }
 }
 
