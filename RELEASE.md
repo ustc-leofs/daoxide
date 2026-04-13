@@ -17,7 +17,7 @@ This document defines the release governance, stability guarantees, and compatib
 ### Current Version
 
 ```
-version = "0.1.0"
+version = "0.2.0"
 ```
 
 ### Stability Guarantees

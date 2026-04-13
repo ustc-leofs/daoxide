@@ -27,7 +27,7 @@ daoxide wraps the low-level DAOS C APIs into safe Rust interfaces:
 
 ```toml
 [dependencies]
-daoxide = { version = "0.1", features = ["async"] }
+daoxide = { version = "0.2", features = ["async"] }
 ```
 
 ## Quick Start
